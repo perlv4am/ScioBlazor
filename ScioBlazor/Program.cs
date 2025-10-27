@@ -33,6 +33,18 @@ builder.Services.AddIdentityCore<ApplicationUser>(options => options.SignIn.Requ
 
 builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSender>();
 
+// External authentication providers (Google)
+builder.Services
+    .AddAuthentication()
+    .AddGoogle(options =>
+    {
+        var googleSection = builder.Configuration.GetSection("Authentication:Google");
+        options.ClientId = googleSection["ClientId"] ?? string.Empty;
+        options.ClientSecret = googleSection["ClientSecret"] ?? string.Empty;
+        // Default callback is "/signin-google" which matches typical Google OAuth setup
+        // options.CallbackPath = "/signin-google";
+    });
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
