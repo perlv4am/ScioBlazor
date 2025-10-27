@@ -1,0 +1,54 @@
+@page "/calendar"
+@attribute [Authorize]
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using ScioBlazor.Data
+@inject UserManager<ApplicationUser> UserManager
+@inject ApplicationDbContext Db
+
+<PageTitle>Můj kalendář</PageTitle>
+
+<h1>Můj kalendář</h1>
+
+@if (meetings is null)
+{
+    <p>Načítám...</p>
+}
+else if (meetings.Count == 0)
+{
+    <p>Zatím nemáte žádné schůzky.</p>
+}
+else
+{
+    <ul>
+        @foreach (var m in meetings)
+        {
+            <li>@m.StartUtc.ToLocalTime().ToString("g")</li>
+        }
+    </ul>
+}
+
+@code {
+    private List<Meeting>? meetings;
+
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateTask;
+        var user = await UserManager.GetUserAsync(authState.User);
+        if (user is null)
+        {
+            meetings = new();
+            return;
+        }
+
+        meetings = await Db.Meetings
+            .Where(x => x.OwnerId == user.Id)
+            .OrderBy(x => x.StartUtc)
+            .ToListAsync();
+    }
+}

@@ -1,7 +1,101 @@
-﻿@page "/"
+@page "/"
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using ScioBlazor.Data
+@rendermode InteractiveServer
+@inject UserManager<ApplicationUser> UserManager
+@inject ApplicationDbContext Db
+@inject NavigationManager Nav
+@inject IJSRuntime JS
 
 <PageTitle>Home</PageTitle>
 
-<h1>Hello, world!</h1>
+<h1>Domovská stránka</h1>
 
-Welcome to your new app.
+@if (isAuthenticated)
+{
+    <div class="mb-3">
+        <button class="btn btn-primary me-2" @onclick="GenerateOrGetLink">Vygenerovat odkaz na schůzku</button>
+        <a class="btn btn-secondary" href="/calendar">Můj kalendář</a>
+    </div>
+
+    @if (!string.IsNullOrEmpty(shareUrl))
+    {
+        <div class="alert alert-success mt-3">
+            <div>Váš odkaz pro sjednání schůzky:</div>
+            <code>@shareUrl</code>
+            <div class="mt-2">
+                <button class="btn btn-sm btn-outline-dark" @onclick="CopyLink">Kopírovat</button>
+            </div>
+        </div>
+    }
+}
+else
+{
+    <p>Pro generování odkazu se prosím přihlaste.</p>
+}
+
+@code {
+    private string? shareUrl;
+    private bool isAuthenticated;
+
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateTask;
+        isAuthenticated = authState.User.Identity?.IsAuthenticated == true;
+    }
+
+    private async Task GenerateOrGetLink()
+    {
+        var authState = await AuthenticationStateTask;
+        var user = await UserManager.GetUserAsync(authState.User);
+        if (user is null) return;
+
+        var existing = await Db.ShareLinks.FirstOrDefaultAsync(x => x.OwnerId == user.Id);
+        if (existing is null)
+        {
+            existing = new ShareLink
+            {
+                OwnerId = user.Id,
+                Token = await GenerateUniqueTokenAsync()
+            };
+            Db.ShareLinks.Add(existing);
+            await Db.SaveChangesAsync();
+        }
+
+        var baseUri = Nav.BaseUri.TrimEnd('/');
+        shareUrl = $"{baseUri}/s/{existing.Token}";
+    }
+
+    private async Task<string> GenerateUniqueTokenAsync()
+    {
+        string token;
+        do
+        {
+            token = CreateUrlSafeToken(16);
+        } while (await Db.ShareLinks.AnyAsync(x => x.Token == token));
+        return token;
+    }
+
+    private static string CreateUrlSafeToken(int bytes)
+    {
+        var buffer = System.Security.Cryptography.RandomNumberGenerator.GetBytes(bytes);
+        var s = Convert.ToBase64String(buffer)
+            .Replace('+', '-')
+            .Replace('/', '_')
+            .TrimEnd('=');
+        return s;
+    }
+
+    private async Task CopyLink()
+    {
+        if (!string.IsNullOrEmpty(shareUrl))
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", shareUrl);
+        }
+    }
+}
