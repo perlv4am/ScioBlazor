@@ -103,7 +103,8 @@
         var startUtc = new DateTime(fromLocal.Year, fromLocal.Month, fromLocal.Day, 0, 0, 0, DateTimeKind.Local).ToUniversalTime();
         var nextUtc = startUtc.AddDays(1);
         var dayMeetings = await Db.Meetings
-            .Where(m => m.OwnerId == owner.Id && m.StartUtc >= startUtc && m.StartUtc < nextUtc)
+            .Where(m => m.StartUtc >= startUtc && m.StartUtc < nextUtc &&
+                        (m.OwnerId == owner.Id || (owner.Email != null && m.AttendeeEmail == owner.Email)))
             .OrderBy(m => m.StartUtc)
             .Select(m => new { m.StartUtc, m.EndUtc })
             .ToListAsync();
@@ -111,6 +112,18 @@
         var existing = dayMeetings
             .Select(m => (Start: m.StartUtc.ToLocalTime(), End: m.EndUtc.ToLocalTime()))
             .ToList();
+
+        // Also block requester's own meetings that day (as owner or attendee)
+        if (!string.IsNullOrWhiteSpace(requesterId) || !string.IsNullOrWhiteSpace(requesterEmail))
+        {
+            var myBlocks = await Db.Meetings
+                .Where(m => m.StartUtc >= startUtc && m.StartUtc < nextUtc &&
+                            ((requesterId != null && m.OwnerId == requesterId) ||
+                             (requesterEmail != null && m.AttendeeEmail == requesterEmail)))
+                .Select(m => new { m.StartUtc, m.EndUtc })
+                .ToListAsync();
+            existing.AddRange(myBlocks.Select(x => (x.StartUtc.ToLocalTime(), x.EndUtc.ToLocalTime())));
+        }
 
         var open = fromLocal.Date.AddHours(9);
         var close = fromLocal.Date.AddHours(16);
@@ -190,7 +203,8 @@
         }
 
         var list = await Db.Meetings
-            .Where(m => m.OwnerId == owner.Id && m.StartUtc >= dayStartUtc && m.StartUtc < nextUtc)
+            .Where(m => m.StartUtc >= dayStartUtc && m.StartUtc < nextUtc &&
+                        (m.OwnerId == owner.Id || (owner.Email != null && m.AttendeeEmail == owner.Email)))
             .OrderBy(m => m.StartUtc)
             .ToListAsync();
 
@@ -228,6 +242,18 @@
         }
 
         var existing = list.Select(m => (Start: m.StartUtc.ToLocalTime(), End: m.EndUtc.ToLocalTime())).ToList();
+        // Add requester's own meetings to prevent double-booking
+        if (!string.IsNullOrWhiteSpace(requesterId) || !string.IsNullOrWhiteSpace(requesterEmail))
+        {
+            var myBlocks = await Db.Meetings
+                .Where(m => m.StartUtc >= dayStartUtc && m.StartUtc < nextUtc &&
+                            ((requesterId != null && m.OwnerId == requesterId) ||
+                             (requesterEmail != null && m.AttendeeEmail == requesterEmail)))
+                .Select(m => new { m.StartUtc, m.EndUtc })
+                .ToListAsync();
+            existing.AddRange(myBlocks.Select(x => (x.StartUtc.ToLocalTime(), x.EndUtc.ToLocalTime())));
+        }
+
         var (ok, reason) = IsSlotAvailable(startLocal, endLocal, existing, 3 - list.Count);
         if (!ok)
         {
@@ -364,6 +390,8 @@ else if (owner is not null)
 
     private PageState state = PageState.Loading;
     private ApplicationUser? owner;
+    private string? requesterId;
+    private string? requesterEmail;
     private int monthlyCount;
     private int displayYear;
     private int displayMonth;
@@ -411,12 +439,17 @@ else if (owner is not null)
         var monthStartUtc = monthStartLocal.ToUniversalTime();
         var nextUtc = monthStartUtc.AddMonths(1);
         var monthMeetings = await Db.Meetings
-            .Where(m => m.OwnerId == owner.Id && m.StartUtc >= monthStartUtc && m.StartUtc < nextUtc)
+            .Where(m => m.StartUtc >= monthStartUtc && m.StartUtc < nextUtc &&
+                        (m.OwnerId == owner.Id || (owner.Email != null && m.AttendeeEmail == owner.Email)))
             .Select(m => m.StartUtc)
             .ToListAsync();
 
         // Update monthly count for the displayed month
-        monthlyCount = monthMeetings.Count;
+        // Includes meetings owned by the user AND meetings the user scheduled with others
+        monthlyCount = await Db.Meetings
+            .Where(m => m.StartUtc >= monthStartUtc && m.StartUtc < nextUtc
+                        && (m.OwnerId == owner.Id || (owner.Email != null && m.AttendeeEmail == owner.Email)))
+            .CountAsync();
 
         reservedLocalDates = monthMeetings
             .Select(dt => dt.ToLocalTime().Date)
@@ -475,6 +508,8 @@ else if (owner is not null)
         // Prefill attendee name/email for authenticated non-owner users
         if (authState.User?.Identity?.IsAuthenticated == true && currentUser is not null)
         {
+            requesterId = currentUser.Id;
+            requesterEmail = currentUser.Email;
             var given = authState.User.FindFirst(ClaimTypes.GivenName)?.Value;
             var family = authState.User.FindFirst(ClaimTypes.Surname)?.Value;
 
