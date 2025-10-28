@@ -25,7 +25,8 @@
   border-radius: 4px;
   background-color: #fff;
   position: relative;
-  padding: 0.25rem;
+  /* Reserve space at top for day number so events can start at top */
+  padding: 1rem 0.25rem 0.25rem 0.25rem;
 }
 
 .cal-empty {
@@ -63,14 +64,26 @@
 }
 
 .cal-disabled {
-  opacity: 0.5;
+  /* Do not dim children; just lighten background to indicate disabled */
+  background-color: #f8f9fa;
 }
 
 .cal-event {
-  margin-top: 1.5rem;
-  padding: 0.25rem 0.35rem;
+  margin-top: 0rem;
+  padding: 0.15rem 0.3rem;
   background-color: #0d6efd;
   color: #fff;
   border-radius: 4px;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
+  line-height: 1.2;
+}
+
+/* Compact spacing between multiple events */
+.cal-event + .cal-event {
+  margin-top: 0.2rem;
+}
+
+/* Alternate style for meetings the user booked with others */
+.cal-event-alt {
+  background-color: #6c757d;
 }

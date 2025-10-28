@@ -34,10 +34,12 @@ else
 
 @code {
     private string? userId;
+    private string? userEmail;
     private int displayYear;
     private int displayMonth;
     private IReadOnlyCollection<DateTime> reservedLocalDates = Array.Empty<DateTime>();
-    private Dictionary<DateTime, List<(DateTime Start, DateTime End, string? Name)>> byDay = new();
+    private Dictionary<DateTime, List<EventVm>> byDay = new();
+    private sealed record EventVm(DateTime Start, DateTime End, string Label, bool WithMe);
 
     [CascadingParameter]
     private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
@@ -47,6 +49,7 @@ else
         var authState = await AuthenticationStateTask;
         var user = await UserManager.GetUserAsync(authState.User);
         userId = user?.Id;
+        userEmail = user?.Email;
         var now = DateTime.Now;
         displayYear = now.Year;
         displayMonth = now.Month;
@@ -62,16 +65,53 @@ else
         var monthStartLocal = new DateTime(displayYear, displayMonth, 1, 0, 0, 0, DateTimeKind.Local);
         var monthStartUtc = monthStartLocal.ToUniversalTime();
         var nextUtc = monthStartUtc.AddMonths(1);
-        var items = await Db.Meetings
-            .Where(m => m.OwnerId == userId && m.StartUtc >= monthStartUtc && m.StartUtc < nextUtc)
-            .OrderBy(m => m.StartUtc)
-            .Select(m => new { m.StartUtc, m.EndUtc, m.AttendeeName })
-            .ToListAsync();
+        var items = await (
+            from m in Db.Meetings
+            join u in Db.Users on m.OwnerId equals u.Id
+            where m.StartUtc >= monthStartUtc && m.StartUtc < nextUtc
+                  && ((m.OwnerId == userId) || (userEmail != null && m.AttendeeEmail == userEmail))
+            orderby m.StartUtc
+            select new
+            {
+                m.StartUtc,
+                m.EndUtc,
+                m.AttendeeName,
+                OwnerFirst = u.FirstName,
+                OwnerLast = u.LastName,
+                OwnerUserName = u.UserName,
+                WithMe = m.OwnerId == userId
+            }
+        ).ToListAsync();
 
-        byDay = items
-            .Select(x => (Start: x.StartUtc.ToLocalTime(), End: x.EndUtc.ToLocalTime(), x.AttendeeName))
+        var projected = items.Select(x =>
+        {
+            var start = x.StartUtc.ToLocalTime();
+            var end = x.EndUtc.ToLocalTime();
+            string label;
+            if (x.WithMe)
+            {
+                label = x.AttendeeName ?? "(nezadáno)";
+            }
+            else
+            {
+                if (!string.IsNullOrWhiteSpace(x.OwnerFirst) || !string.IsNullOrWhiteSpace(x.OwnerLast))
+                {
+                    var first = x.OwnerFirst ?? string.Empty;
+                    var lastInitial = !string.IsNullOrWhiteSpace(x.OwnerLast) ? $" {x.OwnerLast![0].ToString().ToUpperInvariant()}." : string.Empty;
+                    var composed = (first + lastInitial).Trim();
+                    label = string.IsNullOrEmpty(composed) ? (x.OwnerUserName ?? "uživatel") : composed;
+                }
+                else
+                {
+                    label = x.OwnerUserName ?? "uživatel";
+                }
+            }
+            return new EventVm(start, end, label, x.WithMe);
+        });
+
+        byDay = projected
             .GroupBy(x => x.Start.Date)
-            .ToDictionary(g => g.Key, g => g.Select(v => (v.Start, v.End, v.AttendeeName)).ToList());
+            .ToDictionary(g => g.Key, g => g.OrderBy(v => v.Start).ToList());
 
         reservedLocalDates = byDay.Keys.ToList();
         StateHasChanged();
@@ -99,8 +139,9 @@ else
             foreach (var e in list)
             {
                 builder.OpenElement(seq++, "div");
-                builder.AddAttribute(seq++, "class", "cal-event");
-                var label = $"{e.Start:HH\\:mm}-{e.End:HH\\:mm}, {e.Name}";
+                var cls = e.WithMe ? "cal-event" : "cal-event cal-event-alt";
+                builder.AddAttribute(seq++, "class", cls);
+                var label = $"{e.Start:HH\\:mm}-{e.End:HH\\:mm}, {e.Label}";
                 builder.AddContent(seq++, label);
                 builder.CloseElement();
             }

@@ -1,4 +1,4 @@
-﻿@page "/s/{token}"
+@page "/s/{token}"
 @attribute [AllowAnonymous]
 @rendermode InteractiveServer
 @using Microsoft.AspNetCore.Authorization
@@ -415,6 +415,9 @@ else if (owner is not null)
             .Select(m => m.StartUtc)
             .ToListAsync();
 
+        // Update monthly count for the displayed month
+        monthlyCount = monthMeetings.Count;
+
         reservedLocalDates = monthMeetings
             .Select(dt => dt.ToLocalTime().Date)
             .Distinct()
@@ -495,29 +498,11 @@ else if (owner is not null)
             }
         }
 
-        var now = DateTime.UtcNow;
-        var monthStart = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-        var nextMonth = monthStart.AddMonths(1);
-        monthlyCount = await Db.Meetings
-            .Where(m => m.OwnerId == owner.Id && m.StartUtc >= monthStart && m.StartUtc < nextMonth)
-            .CountAsync();
-
-        // Prepare calendar inputs (rendered by local date for hatching)
-        displayYear = monthStart.ToLocalTime().Year;
-        displayMonth = monthStart.ToLocalTime().Month;
-        var monthMeetings = await Db.Meetings
-            .Where(m => m.OwnerId == owner.Id && m.StartUtc >= monthStart && m.StartUtc < nextMonth)
-            .Select(m => m.StartUtc)
-            .ToListAsync();
-        reservedLocalDates = monthMeetings
-            .Select(dt => dt.ToLocalTime().Date)
-            .Distinct()
-            .ToList();
-
-        dayMeetingCounts = monthMeetings
-            .Select(dt => dt.ToLocalTime().Date)
-            .GroupBy(d => d)
-            .ToDictionary(g => g.Key, g => g.Count());
+        // Initialize to current local month and load data via shared path
+        var nowLocal = DateTime.Now;
+        displayYear = nowLocal.Year;
+        displayMonth = nowLocal.Month;
+        await LoadDisplayMonth();
 
         state = PageState.Ok;
     }
