@@ -28,6 +28,15 @@ namespace ScioBlazor.Data
                     .WithMany()
                     .HasForeignKey(x => x.OwnerId)
                     .OnDelete(DeleteBehavior.Cascade);
+
+                b.HasOne<ShareLink>()
+                    .WithMany()
+                    .HasForeignKey(x => x.ShareLinkId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                b.HasIndex(x => x.ShareLinkId)
+                    .IsUnique()
+                    .HasFilter("[ShareLinkId] IS NOT NULL");
             });
         }
     }

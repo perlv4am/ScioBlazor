@@ -1,0 +1,100 @@
+@using System.Globalization
+
+@code {
+    [Parameter]
+    public int Year { get; set; }
+
+    [Parameter]
+    public int Month { get; set; }
+
+    // Dates in local time identifying reserved days
+    [Parameter]
+    public IReadOnlyCollection<DateTime> ReservedLocalDates { get; set; } = Array.Empty<DateTime>();
+
+    // If true, do not render reservation details, only indicate occupancy
+    [Parameter]
+    public bool HideDetails { get; set; } = true;
+
+    // Optional per-day content renderer
+    [Parameter]
+    public RenderFragment<DateTime>? DayContent { get; set; }
+
+    // Optional click handling and selectability predicate
+    [Parameter]
+    public EventCallback<DateTime> OnDayClick { get; set; }
+
+    [Parameter]
+    public Func<DateTime, bool>? DayIsSelectable { get; set; }
+
+    private DateTime FirstOfMonth => new DateTime(Year, Month, 1);
+    private int DaysInMonth => DateTime.DaysInMonth(Year, Month);
+
+    // Start week on Monday to match common CZ locale expectations
+    private static readonly DayOfWeek FirstDayOfWeek = DayOfWeek.Monday;
+
+    private int LeadingBlankDays
+    {
+        get
+        {
+            var offset = ((int)FirstOfMonth.DayOfWeek - (int)FirstDayOfWeek + 7) % 7;
+            return offset;
+        }
+    }
+
+    private HashSet<DateTime> reservedSet = new();
+
+    protected override void OnParametersSet()
+    {
+        // Normalize to date-only in local time
+        reservedSet = ReservedLocalDates
+            .Select(d => d.Date)
+            .ToHashSet();
+    }
+}
+
+<div class="cal">
+    <div class="cal-row cal-head">
+        @foreach (var name in GetWeekdayNames())
+        {
+            <div class="cal-cell cal-head-cell">@name</div>
+        }
+    </div>
+    <div class="cal-grid" style="--leading: @LeadingBlankDays;">
+        @for (var i = 0; i < LeadingBlankDays; i++)
+        {
+            <div class="cal-cell cal-empty"></div>
+        }
+        @for (var day = 1; day <= DaysInMonth; day++)
+        {
+            var date = new DateTime(Year, Month, day);
+            var isReserved = reservedSet.Contains(date.Date);
+            var selectable = DayIsSelectable?.Invoke(date) ?? false;
+            <div class="cal-cell @(isReserved ? "cal-reserved" : null) @(selectable ? "cal-selectable" : "cal-disabled")" @onclick="(() => OnDay(date, selectable))">
+                <div class="cal-day">@day</div>
+                @if (isReserved && !HideDetails)
+                {
+                    <div class="cal-details">Obsazeno</div>
+                }
+                @DayContent?.Invoke(date)
+            </div>
+        }
+    </div>
+</div>
+
+@functions {
+    private static IEnumerable<string> GetWeekdayNames()
+    {
+        // Monday-first, abbreviated
+        var culture = CultureInfo.CurrentCulture;
+        var names = culture.DateTimeFormat.AbbreviatedDayNames;
+        var mondayFirst = Enumerable.Range(0, 7)
+            .Select(i => names[(i + (int)FirstDayOfWeek) % 7]);
+        return mondayFirst;
+    }
+
+    private async Task OnDay(DateTime date, bool selectable)
+    {
+        if (!selectable || !OnDayClick.HasDelegate) return;
+        await OnDayClick.InvokeAsync(date);
+    }
+}

@@ -48,6 +48,50 @@ builder.Services
 
 var app = builder.Build();
 
+// Apply pending EF Core migrations at startup (dev-friendly)
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+    // First, apply EF Core migrations and fail loudly in Development
+    try
+    {
+        db.Database.Migrate();
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogError(ex, "Failed to apply EF Core migrations at startup");
+        if (app.Environment.IsDevelopment()) throw;
+    }
+
+    // Then, optionally ensure legacy columns (guarded and best-effort)
+    var ensureSql = @"
+IF OBJECT_ID('dbo.Meetings','U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.Meetings', 'EndUtc') IS NULL
+        ALTER TABLE dbo.Meetings ADD EndUtc datetime2 NOT NULL CONSTRAINT DF_Meetings_EndUtc DEFAULT ('2000-01-01T00:00:00');
+    IF COL_LENGTH('dbo.Meetings', 'AttendeeName') IS NULL
+        ALTER TABLE dbo.Meetings ADD AttendeeName nvarchar(100) NULL;
+    IF COL_LENGTH('dbo.Meetings', 'ShareLinkId') IS NULL
+        ALTER TABLE dbo.Meetings ADD ShareLinkId int NULL;
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Meetings_ShareLinkId')
+        CREATE UNIQUE INDEX IX_Meetings_ShareLinkId ON dbo.Meetings(ShareLinkId) WHERE ShareLinkId IS NOT NULL;
+    IF OBJECT_ID('dbo.ShareLinks','U') IS NOT NULL
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_Meetings_ShareLinks_ShareLinkId')
+            ALTER TABLE dbo.Meetings ADD CONSTRAINT FK_Meetings_ShareLinks_ShareLinkId FOREIGN KEY (ShareLinkId) REFERENCES dbo.ShareLinks(Id) ON DELETE CASCADE;
+    END
+END";
+    try
+    {
+        db.Database.ExecuteSqlRaw(ensureSql);
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, "Post-migration ensure SQL failed; database may already be up to date.");
+    }
+}
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {

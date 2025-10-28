@@ -1,0 +1,76 @@
+.cal {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.cal-head {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  font-weight: 600;
+}
+
+.cal-head-cell {
+  text-align: center;
+  padding: 0.25rem 0;
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.cal-cell {
+  min-height: 6rem;
+  border: 1px solid #e2e6ea;
+  border-radius: 4px;
+  background-color: #fff;
+  position: relative;
+  padding: 0.25rem;
+}
+
+.cal-empty {
+  border: none;
+  background: transparent;
+  min-height: 0;
+}
+
+.cal-day {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.35rem;
+  font-size: 0.85rem;
+  color: #6c757d;
+}
+
+/* Hatched fill for reserved days */
+.cal-reserved {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(0,0,0,0.06),
+    rgba(0,0,0,0.06) 6px,
+    rgba(0,0,0,0.0) 6px,
+    rgba(0,0,0,0.0) 12px
+  );
+}
+
+.cal-details {
+  margin-top: 1.25rem;
+  font-size: 0.85rem;
+}
+
+.cal-selectable {
+  cursor: pointer;
+}
+
+.cal-disabled {
+  opacity: 0.5;
+}
+
+.cal-event {
+  margin-top: 1.5rem;
+  padding: 0.25rem 0.35rem;
+  background-color: #0d6efd;
+  color: #fff;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}

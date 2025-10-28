@@ -1,5 +1,6 @@
 @page "/calendar"
 @attribute [Authorize]
+@rendermode InteractiveServer
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Identity
@@ -12,26 +13,31 @@
 
 <h1>Můj kalendář</h1>
 
-@if (meetings is null)
+@if (userId is null)
 {
     <p>Načítám...</p>
 }
-else if (meetings.Count == 0)
-{
-    <p>Zatím nemáte žádné schůzky.</p>
-}
 else
 {
-    <ul>
-        @foreach (var m in meetings)
-        {
-            <li>@m.StartUtc.ToLocalTime().ToString("g")</li>
-        }
-    </ul>
+    <div class="d-flex align-items-center mb-2">
+        <button class="btn btn-outline-secondary me-2" @onclick="PrevMonth">‹</button>
+        <div class="fs-5">@((new DateTime(displayYear, displayMonth, 1)).ToString("Y"))</div>
+        <button class="btn btn-outline-secondary ms-2" @onclick="NextMonth">›</button>
+    </div>
+
+    <CalendarMonth Year="@displayYear"
+                   Month="@displayMonth"
+                   ReservedLocalDates="@reservedLocalDates"
+                   HideDetails="false"
+                   DayContent="@RenderOwnerDay" />
 }
 
 @code {
-    private List<Meeting>? meetings;
+    private string? userId;
+    private int displayYear;
+    private int displayMonth;
+    private IReadOnlyCollection<DateTime> reservedLocalDates = Array.Empty<DateTime>();
+    private Dictionary<DateTime, List<(DateTime Start, DateTime End, string? Name)>> byDay = new();
 
     [CascadingParameter]
     private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
@@ -40,15 +46,64 @@ else
     {
         var authState = await AuthenticationStateTask;
         var user = await UserManager.GetUserAsync(authState.User);
-        if (user is null)
+        userId = user?.Id;
+        var now = DateTime.Now;
+        displayYear = now.Year;
+        displayMonth = now.Month;
+        if (userId is not null)
         {
-            meetings = new();
-            return;
+            await LoadMonth();
         }
-
-        meetings = await Db.Meetings
-            .Where(x => x.OwnerId == user.Id)
-            .OrderBy(x => x.StartUtc)
-            .ToListAsync();
     }
+
+    private async Task LoadMonth()
+    {
+        if (userId is null) return;
+        var monthStartLocal = new DateTime(displayYear, displayMonth, 1, 0, 0, 0, DateTimeKind.Local);
+        var monthStartUtc = monthStartLocal.ToUniversalTime();
+        var nextUtc = monthStartUtc.AddMonths(1);
+        var items = await Db.Meetings
+            .Where(m => m.OwnerId == userId && m.StartUtc >= monthStartUtc && m.StartUtc < nextUtc)
+            .OrderBy(m => m.StartUtc)
+            .Select(m => new { m.StartUtc, m.EndUtc, m.AttendeeName })
+            .ToListAsync();
+
+        byDay = items
+            .Select(x => (Start: x.StartUtc.ToLocalTime(), End: x.EndUtc.ToLocalTime(), x.AttendeeName))
+            .GroupBy(x => x.Start.Date)
+            .ToDictionary(g => g.Key, g => g.Select(v => (v.Start, v.End, v.AttendeeName)).ToList());
+
+        reservedLocalDates = byDay.Keys.ToList();
+        StateHasChanged();
+    }
+
+    private void PrevMonth()
+    {
+        var dt = new DateTime(displayYear, displayMonth, 1).AddMonths(-1);
+        displayYear = dt.Year; displayMonth = dt.Month;
+        _ = LoadMonth();
+    }
+
+    private void NextMonth()
+    {
+        var dt = new DateTime(displayYear, displayMonth, 1).AddMonths(1);
+        displayYear = dt.Year; displayMonth = dt.Month;
+        _ = LoadMonth();
+    }
+
+    private RenderFragment<DateTime> RenderOwnerDay => date => builder =>
+    {
+        if (byDay.TryGetValue(date.Date, out var list))
+        {
+            var seq = 0;
+            foreach (var e in list)
+            {
+                builder.OpenElement(seq++, "div");
+                builder.AddAttribute(seq++, "class", "cal-event");
+                var label = $"{e.Start:HH\\:mm}-{e.End:HH\\:mm}, {e.Name}";
+                builder.AddContent(seq++, label);
+                builder.CloseElement();
+            }
+        }
+    };
 }

@@ -55,20 +55,17 @@ else
         var user = await UserManager.GetUserAsync(authState.User);
         if (user is null) return;
 
-        var existing = await Db.ShareLinks.FirstOrDefaultAsync(x => x.OwnerId == user.Id);
-        if (existing is null)
+        // Always create a fresh single-use link for a new meeting
+        var link = new ShareLink
         {
-            existing = new ShareLink
-            {
-                OwnerId = user.Id,
-                Token = await GenerateUniqueTokenAsync()
-            };
-            Db.ShareLinks.Add(existing);
-            await Db.SaveChangesAsync();
-        }
+            OwnerId = user.Id,
+            Token = await GenerateUniqueTokenAsync()
+        };
+        Db.ShareLinks.Add(link);
+        await Db.SaveChangesAsync();
 
         var baseUri = Nav.BaseUri.TrimEnd('/');
-        shareUrl = $"{baseUri}/s/{existing.Token}";
+        shareUrl = $"{baseUri}/s/{link.Token}";
     }
 
     private async Task<string> GenerateUniqueTokenAsync()
