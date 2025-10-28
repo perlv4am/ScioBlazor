@@ -12,6 +12,7 @@
 @inject UserManager<ApplicationUser> UserManager
 @inject ApplicationDbContext Db
 @inject NavigationManager Nav
+@inject ScioBlazor.Services.IBookingNotificationService Notifications
 
 <PageTitle>Sjednat schůzku</PageTitle>
 
@@ -164,6 +165,12 @@
             bookingError = "Zadejte jméno a příjmení.";
             return;
         }
+        // Basic email validation if provided
+        if (!string.IsNullOrWhiteSpace(attendeeEmail) && !System.Net.Mail.MailAddress.TryCreate(attendeeEmail, out _))
+        {
+            bookingError = "Zadejte platný e-mail.";
+            return;
+        }
 
         var duration = TimeSpan.FromMinutes(selectedDurationMinutes);
         var startLocal = selectedSlotStartLocal.Value;
@@ -234,10 +241,14 @@
             StartUtc = startUtc,
             EndUtc = endUtc,
             AttendeeName = name,
+            AttendeeEmail = string.IsNullOrWhiteSpace(attendeeEmail) ? null : attendeeEmail.Trim(),
             ShareLinkId = linkRef.Id
         };
         Db.Meetings.Add(meeting);
         await Db.SaveChangesAsync();
+
+        // Fire-and-forget: notify attendee and owner (log failures inside service)
+        _ = Notifications.NotifyBookingCreated(meeting, owner);
 
         personalMeetingDateLocal = startLocal.Date;
         if (dayMeetingCounts.ContainsKey(startLocal.Date)) dayMeetingCounts[startLocal.Date]++;
@@ -297,6 +308,10 @@
                             <label class="form-label">Příjmení</label>
                             <input class="form-control" @bind-value="attendeeLast" />
                         </div>
+                    </div>
+                    <div class="mb-3 mt-2">
+                        <label class="form-label">E‑mail</label>
+                        <input class="form-control" @bind-value="attendeeEmail" type="email" />
                     </div>
                     @if (!string.IsNullOrEmpty(bookingError))
                     {
@@ -419,6 +434,7 @@ else if (owner is not null)
     private int selectedDurationMinutes = 30;
     private string attendeeFirst = string.Empty;
     private string attendeeLast = string.Empty;
+    private string? attendeeEmail;
     private List<Slot> slots = new();
     private DateTime? selectedSlotStartLocal;
     private string? bookingError;
@@ -453,7 +469,7 @@ else if (owner is not null)
             return;
         }
 
-        // Prefill attendee name for authenticated non-owner users
+        // Prefill attendee name/email for authenticated non-owner users
         if (authState.User?.Identity?.IsAuthenticated == true && currentUser is not null)
         {
             var given = authState.User.FindFirst(ClaimTypes.GivenName)?.Value;
@@ -464,6 +480,8 @@ else if (owner is not null)
 
             if (string.IsNullOrWhiteSpace(attendeeFirst) && !string.IsNullOrWhiteSpace(currentUser.FirstName)) attendeeFirst = currentUser.FirstName!;
             if (string.IsNullOrWhiteSpace(attendeeLast) && !string.IsNullOrWhiteSpace(currentUser.LastName)) attendeeLast = currentUser.LastName!;
+
+            if (string.IsNullOrWhiteSpace(attendeeEmail) && !string.IsNullOrWhiteSpace(currentUser.Email)) attendeeEmail = currentUser.Email;
 
             // Fallback: try to derive from username if it contains a space
             if ((string.IsNullOrWhiteSpace(attendeeFirst) || string.IsNullOrWhiteSpace(attendeeLast)) && !string.IsNullOrWhiteSpace(currentUser.UserName))

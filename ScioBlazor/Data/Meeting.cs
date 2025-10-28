@@ -16,6 +16,10 @@ namespace ScioBlazor.Data
         [MaxLength(100)]
         public string? AttendeeName { get; set; }
 
+        [MaxLength(256)]
+        [EmailAddress]
+        public string? AttendeeEmail { get; set; }
+
         // One meeting per share link (optional for legacy/owner-created meetings)
         public int? ShareLinkId { get; set; }
 

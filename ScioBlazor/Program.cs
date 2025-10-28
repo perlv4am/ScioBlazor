@@ -6,6 +6,7 @@ using ScioBlazor.Data;
 using System.Globalization;
 using Microsoft.AspNetCore.Localization;
 using Microsoft.AspNetCore.Authentication;
+using ScioBlazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -36,6 +37,10 @@ builder.Services.AddIdentityCore<ApplicationUser>(options => options.SignIn.Requ
     .AddDefaultTokenProviders();
 
 builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSender>();
+
+// SendGrid booking notifications
+builder.Services.Configure<SendGridOptions>(builder.Configuration.GetSection("Email:SendGrid"));
+builder.Services.AddSingleton<IBookingNotificationService, SendGridBookingNotificationService>();
 
 // External authentication providers (Google)
 builder.Services
