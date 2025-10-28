@@ -64,11 +64,29 @@
         var user = await UserManager.FindByEmailAsync(email);
         if (user is null)
         {
-            user = new ApplicationUser { UserName = email, Email = email, EmailConfirmed = true };
+            // Try to populate profile names from external claims
+            var given = info.Principal.FindFirstValue(ClaimTypes.GivenName) ?? info.Principal.FindFirstValue("given_name");
+            var family = info.Principal.FindFirstValue(ClaimTypes.Surname) ?? info.Principal.FindFirstValue("family_name");
+
+            user = new ApplicationUser { UserName = email, Email = email, EmailConfirmed = true, FirstName = given, LastName = family };
             var createResult = await UserManager.CreateAsync(user);
             if (!createResult.Succeeded)
             {
                 RedirectManager.RedirectToWithStatus("/Account/Login", $"Error creating user: {string.Join(", ", createResult.Errors.Select(e => e.Description))}", HttpContext);
+            }
+        }
+
+        // Update missing names for existing user if available
+        if (user is not null)
+        {
+            var upd = false;
+            var given = info.Principal.FindFirstValue(ClaimTypes.GivenName) ?? info.Principal.FindFirstValue("given_name");
+            var family = info.Principal.FindFirstValue(ClaimTypes.Surname) ?? info.Principal.FindFirstValue("family_name");
+            if (string.IsNullOrWhiteSpace(user.FirstName) && !string.IsNullOrWhiteSpace(given)) { user.FirstName = given; upd = true; }
+            if (string.IsNullOrWhiteSpace(user.LastName) && !string.IsNullOrWhiteSpace(family)) { user.LastName = family; upd = true; }
+            if (upd)
+            {
+                await UserManager.UpdateAsync(user);
             }
         }
 

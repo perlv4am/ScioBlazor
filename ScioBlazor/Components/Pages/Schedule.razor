@@ -1,4 +1,4 @@
-@page "/s/{token}"
+﻿@page "/s/{token}"
 @attribute [AllowAnonymous]
 @rendermode InteractiveServer
 @using Microsoft.AspNetCore.Authorization
@@ -8,6 +8,7 @@
 @using Microsoft.EntityFrameworkCore
 @using ScioBlazor.Data
 @using ScioBlazor.Utils
+@using System.Security.Claims
 @inject UserManager<ApplicationUser> UserManager
 @inject ApplicationDbContext Db
 @inject NavigationManager Nav
@@ -47,13 +48,37 @@
         return first + lastInitial;
     }
 
+    // Helper to show user's name (First + Last initial) with fallbacks
+    private string OwnerDisplayShort()
+    {
+        if (owner is not null && (!string.IsNullOrWhiteSpace(owner.FirstName) || !string.IsNullOrWhiteSpace(owner.LastName)))
+        {
+            var first = owner.FirstName ?? string.Empty;
+            var lastInitial = !string.IsNullOrWhiteSpace(owner.LastName) ? $" {owner.LastName[0].ToString().ToUpperInvariant()}." : string.Empty;
+            var result = (first + lastInitial).Trim();
+            if (!string.IsNullOrEmpty(result)) return result;
+        }
+
+        // Fallback to username parsing (may be email)
+        var display = owner?.UserName ?? "uživatel";
+        string firstFallback = display;
+        string lastInitialFallback = string.Empty;
+        var parts = display.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length >= 2)
+        {
+            firstFallback = parts[0];
+            lastInitialFallback = $" {parts[^1][0].ToString().ToUpperInvariant()}.";
+        }
+        return firstFallback + lastInitialFallback;
+    }
+
     private RenderFragment<DateTime> RenderPersonalEvent => date => builder =>
     {
         if (personalMeetingDateLocal.HasValue && personalMeetingDateLocal.Value.Date == date.Date)
         {
             builder.OpenElement(0, "div");
             builder.AddAttribute(1, "class", "cal-event");
-            builder.AddContent(2, $"Vaše schůzka s {OwnerShort()}");
+            builder.AddContent(2, $"Vaše schůzka s {OwnerDisplayShort()}");
             builder.CloseElement();
         }
     };
@@ -62,8 +87,6 @@
     {
         selectedDateLocal = dateLocal.Date;
         selectedDurationMinutes = 30;
-        attendeeFirst = string.Empty;
-        attendeeLast = string.Empty;
         bookingError = null;
         await LoadSlotsForSelectedDay();
         showModal = true;
@@ -430,6 +453,30 @@ else if (owner is not null)
             return;
         }
 
+        // Prefill attendee name for authenticated non-owner users
+        if (authState.User?.Identity?.IsAuthenticated == true && currentUser is not null)
+        {
+            var given = authState.User.FindFirst(ClaimTypes.GivenName)?.Value;
+            var family = authState.User.FindFirst(ClaimTypes.Surname)?.Value;
+
+            if (!string.IsNullOrWhiteSpace(given)) attendeeFirst = given!;
+            if (!string.IsNullOrWhiteSpace(family)) attendeeLast = family!;
+
+            if (string.IsNullOrWhiteSpace(attendeeFirst) && !string.IsNullOrWhiteSpace(currentUser.FirstName)) attendeeFirst = currentUser.FirstName!;
+            if (string.IsNullOrWhiteSpace(attendeeLast) && !string.IsNullOrWhiteSpace(currentUser.LastName)) attendeeLast = currentUser.LastName!;
+
+            // Fallback: try to derive from username if it contains a space
+            if ((string.IsNullOrWhiteSpace(attendeeFirst) || string.IsNullOrWhiteSpace(attendeeLast)) && !string.IsNullOrWhiteSpace(currentUser.UserName))
+            {
+                var parts = currentUser.UserName!.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                if (parts.Length >= 2)
+                {
+                    if (string.IsNullOrWhiteSpace(attendeeFirst)) attendeeFirst = parts[0];
+                    if (string.IsNullOrWhiteSpace(attendeeLast)) attendeeLast = parts[^1];
+                }
+            }
+        }
+
         var now = DateTime.UtcNow;
         var monthStart = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
         var nextMonth = monthStart.AddMonths(1);
@@ -457,17 +504,8 @@ else if (owner is not null)
         state = PageState.Ok;
     }
 
-    private string HeaderText()
+        private string HeaderText()
     {
-        var display = owner?.UserName ?? "uživatel";
-        string first = display;
-        string lastInitial = string.Empty;
-        var parts = display.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (parts.Length >= 2)
-        {
-            first = parts[0];
-            lastInitial = $" {parts[^1][0].ToString().ToUpperInvariant()}.";
-        }
-        return $"Sjednat schůzku s uživatelem {first}{lastInitial}";
+        return $"Sjednat schůzku s uživatelem {OwnerDisplayShort()}";
     }
 }
