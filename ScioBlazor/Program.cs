@@ -3,6 +3,8 @@ using Microsoft.EntityFrameworkCore;
 using ScioBlazor.Components;
 using ScioBlazor.Components.Account;
 using ScioBlazor.Data;
+using System.Globalization;
+using Microsoft.AspNetCore.Localization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -47,6 +49,18 @@ builder.Services
     });
 
 var app = builder.Build();
+
+// Force Czech culture for the entire app (dates, numbers, UI)
+var cs = new CultureInfo("cs-CZ");
+var locOptions = new RequestLocalizationOptions
+{
+    DefaultRequestCulture = new RequestCulture(cs),
+    SupportedCultures = new List<CultureInfo> { cs },
+    SupportedUICultures = new List<CultureInfo> { cs }
+};
+app.UseRequestLocalization(locOptions);
+CultureInfo.DefaultThreadCurrentCulture = cs;
+CultureInfo.DefaultThreadCurrentUICulture = cs;
 
 // Apply pending EF Core migrations at startup (dev-friendly)
 using (var scope = app.Services.CreateScope())

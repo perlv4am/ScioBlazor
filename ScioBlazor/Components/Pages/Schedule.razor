@@ -303,6 +303,11 @@ else if (state == PageState.RedirectOwner)
 else if (owner is not null)
 {
     <h1>@HeaderText()</h1>
+    <div class="d-flex align-items-center mb-2">
+        <button class="btn btn-outline-secondary me-2" @onclick="PrevMonth" disabled="@(!CanPrevMonth())">‹</button>
+        <div class="fs-5">@((new DateTime(displayYear, displayMonth, 1)).ToString("Y"))</div>
+        <button class="btn btn-outline-secondary ms-2" @onclick="NextMonth" disabled="@(!CanNextMonth())">›</button>
+    </div>
     <h2>Počet schůzek tento měsíc: @monthlyCount</h2>
 
     <div class="mt-3">
@@ -328,6 +333,62 @@ else if (owner is not null)
     private Dictionary<DateTime, int> dayMeetingCounts = new();
 
     private ShareLink? linkRef;
+
+    // Month navigation and data loading for public scheduling view
+    private bool CanPrevMonth()
+    {
+        var currentMonthStart = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
+        var prevStart = new DateTime(displayYear, displayMonth, 1).AddMonths(-1);
+        return prevStart >= currentMonthStart;
+    }
+
+    private bool CanNextMonth()
+    {
+        var currentMonthStart = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
+        var limitStart = currentMonthStart.AddMonths(2);
+        var nextStart = new DateTime(displayYear, displayMonth, 1).AddMonths(1);
+        return nextStart <= limitStart;
+    }
+
+    private async Task PrevMonth()
+    {
+        if (!CanPrevMonth()) return;
+        var dt = new DateTime(displayYear, displayMonth, 1).AddMonths(-1);
+        displayYear = dt.Year; displayMonth = dt.Month;
+        await LoadDisplayMonth();
+    }
+
+    private async Task NextMonth()
+    {
+        if (!CanNextMonth()) return;
+        var dt = new DateTime(displayYear, displayMonth, 1).AddMonths(1);
+        displayYear = dt.Year; displayMonth = dt.Month;
+        await LoadDisplayMonth();
+    }
+
+    private async Task LoadDisplayMonth()
+    {
+        if (owner is null) return;
+        var monthStartLocal = new DateTime(displayYear, displayMonth, 1, 0, 0, 0, DateTimeKind.Local);
+        var monthStartUtc = monthStartLocal.ToUniversalTime();
+        var nextUtc = monthStartUtc.AddMonths(1);
+        var monthMeetings = await Db.Meetings
+            .Where(m => m.OwnerId == owner.Id && m.StartUtc >= monthStartUtc && m.StartUtc < nextUtc)
+            .Select(m => m.StartUtc)
+            .ToListAsync();
+
+        reservedLocalDates = monthMeetings
+            .Select(dt => dt.ToLocalTime().Date)
+            .Distinct()
+            .ToList();
+
+        dayMeetingCounts = monthMeetings
+            .Select(dt => dt.ToLocalTime().Date)
+            .GroupBy(d => d)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        StateHasChanged();
+    }
 
     // Booking state
     private bool showModal;
