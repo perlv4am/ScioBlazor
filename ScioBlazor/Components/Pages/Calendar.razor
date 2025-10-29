@@ -10,6 +10,7 @@
 @inject UserManager<ApplicationUser> UserManager
 @inject ApplicationDbContext Db
 @inject NavigationManager NavigationManager
+@inject ScioBlazor.Services.IBookingNotificationService Notifications
 
 <PageTitle>Můj kalendář</PageTitle>
 
@@ -229,6 +230,7 @@ else
         }
         Db.Meetings.Remove(m);
         await Db.SaveChangesAsync();
+        _ = Notifications.NotifyBookingCanceled(m, me);
         showEventModal = false;
         await LoadMonth();
     }

@@ -60,6 +60,86 @@ public class SendGridBookingNotificationService : IBookingNotificationService
         }
     }
 
+    public async Task NotifyBookingRescheduled(Meeting meeting, ApplicationUser owner, DateTime oldStartUtc, DateTime oldEndUtc, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(_options.ApiKey) || string.IsNullOrWhiteSpace(_options.FromAddress))
+        {
+            _logger.LogWarning("SendGrid not configured; skipping email notifications.");
+            return;
+        }
+
+        var client = new SendGridClient(_options.ApiKey);
+        var from = new EmailAddress(_options.FromAddress, _options.FromName);
+
+        var culture = CultureInfo.CurrentCulture;
+        var oldStartLocal = oldStartUtc.ToLocalTime();
+        var oldEndLocal = oldEndUtc.ToLocalTime();
+        var newStartLocal = meeting.StartUtc.ToLocalTime();
+        var newEndLocal = meeting.EndUtc.ToLocalTime();
+        var oldWhen = $"{oldStartLocal:dddd d. MMMM yyyy HH:mm} – {oldEndLocal:HH:mm}";
+        var newWhen = $"{newStartLocal:dddd d. MMMM yyyy HH:mm} – {newEndLocal:HH:mm}";
+        var ownerShort = OwnerShort(owner);
+
+        if (!string.IsNullOrWhiteSpace(meeting.AttendeeEmail))
+        {
+            var to = new EmailAddress(meeting.AttendeeEmail!, meeting.AttendeeName);
+            var subject = "Změna termínu schůzky";
+            var text = $"Dobrý den,\n\nTermín vaší schůzky s {ownerShort} byl změněn.\n\nPůvodně: {oldWhen}\nNově: {newWhen}\n";
+            var html = $"<p>Dobrý den,</p><p>Termín vaší schůzky s <strong>{ownerShort}</strong> byl změněn.</p><p><strong>Původně:</strong> {oldWhen}<br/><strong>Nově:</strong> {newWhen}</p>";
+            var msg = MailHelper.CreateSingleEmail(from, to, subject, text, html);
+            await SafeSend(client, msg, "attendee-reschedule", ct);
+        }
+
+        if (!string.IsNullOrWhiteSpace(owner.Email))
+        {
+            var to = new EmailAddress(owner.Email!, owner.UserName);
+            var who = meeting.AttendeeName ?? "(nezadáno)";
+            var subject = "Schůzka přeplánována";
+            var text = $"Dobrý den,\n\nSchůzka byla přeplánována.\n\nKdo: {who}\nPůvodně: {oldWhen}\nNově: {newWhen}\n";
+            var html = $"<p>Dobrý den,</p><p>Schůzka byla přeplánována.</p><p><strong>Kdo:</strong> {who}<br/><strong>Původně:</strong> {oldWhen}<br/><strong>Nově:</strong> {newWhen}</p>";
+            var msg = MailHelper.CreateSingleEmail(from, to, subject, text, html);
+            await SafeSend(client, msg, "owner-reschedule", ct);
+        }
+    }
+
+    public async Task NotifyBookingCanceled(Meeting meeting, ApplicationUser owner, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(_options.ApiKey) || string.IsNullOrWhiteSpace(_options.FromAddress))
+        {
+            _logger.LogWarning("SendGrid not configured; skipping email notifications.");
+            return;
+        }
+
+        var client = new SendGridClient(_options.ApiKey);
+        var from = new EmailAddress(_options.FromAddress, _options.FromName);
+
+        var startLocal = meeting.StartUtc.ToLocalTime();
+        var endLocal = meeting.EndUtc.ToLocalTime();
+        var whenText = $"{startLocal:dddd d. MMMM yyyy HH:mm} – {endLocal:HH:mm}";
+        var ownerShort = OwnerShort(owner);
+
+        if (!string.IsNullOrWhiteSpace(meeting.AttendeeEmail))
+        {
+            var to = new EmailAddress(meeting.AttendeeEmail!, meeting.AttendeeName);
+            var subject = "Zrušení schůzky";
+            var text = $"Dobrý den,\n\nSchůzka s {ownerShort} byla zrušena.\n\nTermín: {whenText}\n";
+            var html = $"<p>Dobrý den,</p><p>Schůzka s <strong>{ownerShort}</strong> byla zrušena.</p><p><strong>Termín:</strong> {whenText}</p>";
+            var msg = MailHelper.CreateSingleEmail(from, to, subject, text, html);
+            await SafeSend(client, msg, "attendee-cancel", ct);
+        }
+
+        if (!string.IsNullOrWhiteSpace(owner.Email))
+        {
+            var to = new EmailAddress(owner.Email!, owner.UserName);
+            var who = meeting.AttendeeName ?? "(nezadáno)";
+            var subject = "Schůzka zrušena";
+            var text = $"Dobrý den,\n\nSchůzka byla zrušena.\n\nKdo: {who}\nTermín: {whenText}\n";
+            var html = $"<p>Dobrý den,</p><p>Schůzka byla zrušena.</p><p><strong>Kdo:</strong> {who}<br/><strong>Termín:</strong> {whenText}</p>";
+            var msg = MailHelper.CreateSingleEmail(from, to, subject, text, html);
+            await SafeSend(client, msg, "owner-cancel", ct);
+        }
+    }
+
     private static string OwnerShort(ApplicationUser owner)
     {
         if (!string.IsNullOrWhiteSpace(owner.FirstName) || !string.IsNullOrWhiteSpace(owner.LastName))
@@ -88,4 +168,3 @@ public class SendGridBookingNotificationService : IBookingNotificationService
         }
     }
 }
-

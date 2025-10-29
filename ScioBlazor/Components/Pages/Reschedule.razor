@@ -13,6 +13,7 @@
 @inject UserManager<ApplicationUser> UserManager
 @inject ApplicationDbContext Db
 @inject NavigationManager Nav
+@inject ScioBlazor.Services.IBookingNotificationService Notifications
 
 <PageTitle>Upravit schůzku</PageTitle>
 
@@ -280,11 +281,15 @@ else if (state == PageState.Ok)
             return;
         }
 
+        var oldStartUtc = meeting.StartUtc;
+        var oldEndUtc = meeting.EndUtc;
         meeting.StartUtc = startUtc;
         meeting.EndUtc = endUtc;
         await Db.SaveChangesAsync();
         await tx.CommitAsync();
-        Nav.NavigateTo("/calendar", true);
+        var focusDate = startLocal.ToString("yyyy-MM-dd");
+        Nav.NavigateTo($"/calendar?d={focusDate}", true);
+        _ = Notifications.NotifyBookingRescheduled(meeting, me, oldStartUtc, oldEndUtc);
     }
 
     // Month navigation helpers
