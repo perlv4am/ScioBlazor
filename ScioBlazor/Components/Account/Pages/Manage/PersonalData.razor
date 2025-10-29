@@ -2,23 +2,23 @@
 
 @inject IdentityUserAccessor UserAccessor
 
-<PageTitle>Personal Data</PageTitle>
+<PageTitle>Osobní údaje</PageTitle>
 
 <StatusMessage />
-<h3>Personal Data</h3>
+<h3>Osobní údaje</h3>
 
 <div class="row">
     <div class="col-md-6">
-        <p>Your account contains personal data that you have given us. This page allows you to download or delete that data.</p>
+        <p>Váš účet obsahuje osobní údaje, které jste nám poskytli. Na této stránce si je můžete stáhnout nebo smazat.</p>
         <p>
-            <strong>Deleting this data will permanently remove your account, and this cannot be recovered.</strong>
+            <strong>Smazání těchto údajů trvale odstraní váš účet a akci nelze vrátit zpět.</strong>
         </p>
         <form action="Account/Manage/DownloadPersonalData" method="post">
             <AntiforgeryToken />
-            <button class="btn btn-primary" type="submit">Download</button>
+            <button class="btn btn-primary" type="submit">Stáhnout</button>
         </form>
         <p>
-            <a href="Account/Manage/DeletePersonalData" class="btn btn-danger">Delete</a>
+            <a href="Account/Manage/DeletePersonalData" class="btn btn-danger">Smazat</a>
         </p>
     </div>
 </div>
