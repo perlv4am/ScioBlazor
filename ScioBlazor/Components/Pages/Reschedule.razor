@@ -6,6 +6,7 @@
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.EntityFrameworkCore
+@using System.Data
 @using ScioBlazor.Data
 @using ScioBlazor.Utils
 
@@ -227,6 +228,9 @@ else if (state == PageState.Ok)
         // Final conflict verification for selected day excluding this meeting
         var dayStartUtc = new DateTime(startLocal.Year, startLocal.Month, startLocal.Day, 0, 0, 0, DateTimeKind.Local).ToUniversalTime();
         var nextUtc = dayStartUtc.AddDays(1);
+
+        await ConfirmRescheduleAtomic(startLocal, endLocal, startUtc, endUtc, dayStartUtc, nextUtc);
+        return;
         var list = await Db.Meetings
             .Where(m => m.OwnerId == me.Id && m.StartUtc >= dayStartUtc && m.StartUtc < nextUtc && m.Id != meeting.Id)
             .OrderBy(m => m.StartUtc)
@@ -249,6 +253,37 @@ else if (state == PageState.Ok)
         meeting.StartUtc = startUtc;
         meeting.EndUtc = endUtc;
         await Db.SaveChangesAsync();
+        Nav.NavigateTo("/calendar", true);
+    }
+
+    private async Task ConfirmRescheduleAtomic(DateTime startLocal, DateTime endLocal, DateTime startUtc, DateTime endUtc, DateTime dayStartUtc, DateTime nextUtc)
+    {
+        if (me is null || meeting is null) { return; }
+        await using var tx = await Db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+
+        var list = await Db.Meetings
+            .Where(m => m.OwnerId == me.Id && m.StartUtc >= dayStartUtc && m.StartUtc < nextUtc && m.Id != meeting.Id)
+            .OrderBy(m => m.StartUtc)
+            .Select(m => new { m.StartUtc, m.EndUtc })
+            .ToListAsync();
+        if (list.Count >= 3)
+        {
+            bookingError = "V tento den je již kapacita vyčerpána.";
+            return;
+        }
+
+        var existing = list.Select(x => (Start: x.StartUtc.ToLocalTime(), End: x.EndUtc.ToLocalTime())).ToList();
+        var (ok, reason) = IsSlotAvailable(startLocal, endLocal, existing, 3 - list.Count);
+        if (!ok)
+        {
+            bookingError = reason == "obsazeno" ? "Tento termín je obsazen." : "Termín není dostupný.";
+            return;
+        }
+
+        meeting.StartUtc = startUtc;
+        meeting.EndUtc = endUtc;
+        await Db.SaveChangesAsync();
+        await tx.CommitAsync();
         Nav.NavigateTo("/calendar", true);
     }
 

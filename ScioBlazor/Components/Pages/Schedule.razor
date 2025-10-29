@@ -6,6 +6,8 @@
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.EntityFrameworkCore
+@using System.Data
+@using Microsoft.Data.SqlClient
 @using ScioBlazor.Data
 @using ScioBlazor.Utils
 @using System.Security.Claims
@@ -193,6 +195,9 @@
         var dayStartUtc = new DateTime(startLocal.Year, startLocal.Month, startLocal.Day, 0, 0, 0, DateTimeKind.Local).ToUniversalTime();
         var nextUtc = dayStartUtc.AddDays(1);
 
+        await ConfirmBookingAtomic(name, startLocal, endLocal, startUtc, endUtc, dayStartUtc, nextUtc);
+        return;
+
         var already = await Db.Meetings.AnyAsync(m => m.ShareLinkId == linkRef.Id);
         if (already)
         {
@@ -286,6 +291,87 @@
     }
 
     private sealed record Slot(DateTime StartLocal, DateTime EndLocal, bool Available, string? Reason);
+
+    private async Task ConfirmBookingAtomic(string name, DateTime startLocal, DateTime endLocal, DateTime startUtc, DateTime endUtc, DateTime dayStartUtc, DateTime nextUtc)
+    {
+        try
+        {
+            await using var tx = await Db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+
+            var already = await Db.Meetings.AnyAsync(m => m.ShareLinkId == linkRef!.Id);
+            if (already)
+            {
+                state = PageState.AlreadyUsed;
+                showModal = false;
+                return;
+            }
+
+            var list = await Db.Meetings
+                .Where(m => m.StartUtc >= dayStartUtc && m.StartUtc < nextUtc &&
+                            (m.OwnerId == owner!.Id || (owner!.Email != null && m.AttendeeEmail == owner!.Email)))
+                .OrderBy(m => m.StartUtc)
+                .ToListAsync();
+
+            if (list.Count >= 3)
+            {
+                bookingError = "V tento den je již kapacita vyčerpána.";
+                return;
+            }
+
+            var existing = list.Select(m => (Start: m.StartUtc.ToLocalTime(), End: m.EndUtc.ToLocalTime())).ToList();
+            if (!string.IsNullOrWhiteSpace(requesterId) || !string.IsNullOrWhiteSpace(requesterEmail))
+            {
+                var myBlocks = await Db.Meetings
+                    .Where(m => m.StartUtc >= dayStartUtc && m.StartUtc < nextUtc &&
+                                ((requesterId != null && m.OwnerId == requesterId) ||
+                                 (requesterEmail != null && m.AttendeeEmail == requesterEmail)))
+                    .Select(m => new { m.StartUtc, m.EndUtc })
+                    .ToListAsync();
+                existing.AddRange(myBlocks.Select(x => (x.StartUtc.ToLocalTime(), x.EndUtc.ToLocalTime())));
+            }
+
+            var (ok, reason) = IsSlotAvailable(startLocal, endLocal, existing, 3 - list.Count);
+            if (!ok)
+            {
+                bookingError = reason == "obsazeno" ? "Termín je obsazen." : "Termín není dostupný.";
+                return;
+            }
+
+            var meeting = new Meeting
+            {
+                OwnerId = owner!.Id,
+                StartUtc = startUtc,
+                EndUtc = endUtc,
+                AttendeeName = name,
+                AttendeeEmail = string.IsNullOrWhiteSpace(attendeeEmail) ? null : attendeeEmail!.Trim(),
+                ShareLinkId = linkRef!.Id
+            };
+            Db.Meetings.Add(meeting);
+            await Db.SaveChangesAsync();
+            await tx.CommitAsync();
+
+            _ = Notifications.NotifyBookingCreated(meeting, owner!);
+
+            personalMeetingDateLocal = startLocal.Date;
+            if (dayMeetingCounts.ContainsKey(startLocal.Date)) dayMeetingCounts[startLocal.Date]++;
+            else dayMeetingCounts[startLocal.Date] = 1;
+
+            monthlyCount += 1;
+            reservedLocalDates = reservedLocalDates.Concat(new[] { startLocal.Date }).Distinct().ToList();
+            showModal = false;
+        }
+        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+        {
+            state = PageState.AlreadyUsed;
+            showModal = false;
+            return;
+        }
+        catch
+        {
+            bookingError = "Došlo k chybě při uložení. Zkuste to prosím znovu.";
+            return;
+        }
+    }
 }
 
 @if (showModal)
@@ -549,5 +635,16 @@ else if (owner is not null)
             return "Sjednat schůzku s " + instr;
         }
         return $"Sjednat schůzku s uživatelem {OwnerDisplayShort()}";
+    }
+}
+
+@code {
+    private static bool IsUniqueConstraintViolation(DbUpdateException ex)
+    {
+        if (ex.InnerException is SqlException sqlEx)
+        {
+            return sqlEx.Number == 2627 || sqlEx.Number == 2601;
+        }
+        return false;
     }
 }
