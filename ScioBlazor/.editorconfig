@@ -1,0 +1,29 @@
+# Editor configuration, enforces consistent style and encoding across the repo
+root = true
+
+# Defaults
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+indent_style = space
+indent_size = 4
+tab_width = 4
+trim_trailing_whitespace = true
+
+# C#, Razor
+[*.{cs,razor,cshtml}]
+charset = utf-8
+indent_style = space
+indent_size = 4
+dotnet_separate_import_directive_groups = true
+csharp_preferred_using_directive_placement = outside_namespace:suggestion
+
+# JSON, YAML
+[*.{json,yml,yaml}]
+indent_style = space
+indent_size = 2
+
+# Markdown (preserve trailing spaces intentionally used for line breaks)
+[*.md]
+trim_trailing_whitespace = false

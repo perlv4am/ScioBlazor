@@ -156,35 +156,35 @@ else
 }
 
 @if (showEventModal && selectedEvent is not null)
-    {
-        <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,.5);">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Akce se schůzkou</h5>
-                        <button type="button" class="btn-close" @onclick="(() => showEventModal = false)"></button>
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Akce se schůzkou</h5>
+                    <button type="button" class="btn-close" @onclick="(() => showEventModal = false)"></button>
+                </div>
+                <div class="modal-body">
+                    <div>
+                        <div><strong>Čas:</strong> @($"{selectedEvent.Start:HH\\:mm}-{selectedEvent.End:HH\\:mm}")</div>
+                        <div><strong>Popis:</strong> @selectedEvent.Label</div>
                     </div>
-                    <div class="modal-body">
-                        <div>
-                            <div><strong>Cas:</strong> @($"{selectedEvent.Start:HH\\:mm}-{selectedEvent.End:HH\\:mm}")</div>
-                            <div><strong>Popis:</strong> @selectedEvent.Label</div>
-                        </div>
-                        @if (!string.IsNullOrWhiteSpace(eventModalError))
-                        {
-                            <div class="text-danger mt-2">@eventModalError</div>
-                        }
-                    </div>
-                    <div class="modal-footer">
-                        @if (selectedEvent.WithMe)
-                        {
-                            <button type="button" class="btn btn-primary" @onclick="EditSelected">Upravit</button>
-                            <button type="button" class="btn btn-danger" @onclick="DeleteSelectedAsync">Smazat</button>
-                        }
-                        <button type="button" class="btn btn-secondary" @onclick="(() => showEventModal = false)">Zavřít</button>
-                    </div>
+                    @if (!string.IsNullOrWhiteSpace(eventModalError))
+                    {
+                        <div class="text-danger mt-2">@eventModalError</div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    @if (selectedEvent.WithMe)
+                    {
+                        <button type="button" class="btn btn-primary" @onclick="EditSelected">Upravit</button>
+                        <button type="button" class="btn btn-danger" @onclick="DeleteSelectedAsync">Smazat</button>
+                    }
+                    <button type="button" class="btn btn-secondary" @onclick="(() => showEventModal = false)">Zavřít</button>
                 </div>
             </div>
         </div>
+    </div>
 }
 
 @code {
@@ -241,3 +241,4 @@ else
         NavigationManager.NavigateTo($"/reschedule/{selectedEvent.Id}");
     }
 }
+

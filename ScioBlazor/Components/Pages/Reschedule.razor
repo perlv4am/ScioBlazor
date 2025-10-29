@@ -13,23 +13,23 @@
 @inject ApplicationDbContext Db
 @inject NavigationManager Nav
 
-<PageTitle>Upravit schuzku</PageTitle>
+<PageTitle>Upravit schůzku</PageTitle>
 
 @if (state == PageState.Loading)
 {
-    <p>Nacitani...</p>
+    <p>Načítání...</p>
 }
 else if (state == PageState.Forbidden)
 {
-    <h1>Pristup zamitnut</h1>
+    <h1>Přístup zamítnut</h1>
 }
 else if (state == PageState.NotFound)
 {
-    <h1>Schuzka nenalezena</h1>
+    <h1>Schůzka nenalezena</h1>
 }
 else if (state == PageState.Ok)
 {
-    <h1>Upravit schuzku</h1>
+    <h1>Upravit schůzku</h1>
     <div class="d-flex align-items-center mb-2">
         <button class="btn btn-outline-secondary me-2" @onclick="PrevMonth" disabled="@(!CanPrevMonth())">‹</button>
         <div class="fs-5">@((new DateTime(displayYear, displayMonth, 1)).ToString("Y"))</div>
@@ -113,7 +113,7 @@ else if (state == PageState.Ok)
         {
             builder.OpenElement(0, "div");
             builder.AddAttribute(1, "class", "cal-event");
-            builder.AddContent(2, "Aktualni schuzka");
+            builder.AddContent(2, "Aktuální schůzka");
             builder.CloseElement();
         }
     };
@@ -214,7 +214,7 @@ else if (state == PageState.Ok)
         bookingError = null;
         if (me is null || meeting is null || selectedDateLocal is null || selectedSlotStartLocal is null)
         {
-            bookingError = "Vyplnte prosim vsechny udaje.";
+            bookingError = "Vyplňte prosím všechny údaje.";
             return;
         }
 
@@ -234,7 +234,7 @@ else if (state == PageState.Ok)
             .ToListAsync();
         if (list.Count >= 3)
         {
-            bookingError = "V tento den je jiz kapacita vycerpana.";
+            bookingError = "V tento den je již kapacita vyčerpána.";
             return;
         }
 
@@ -242,7 +242,7 @@ else if (state == PageState.Ok)
         var (ok, reason) = IsSlotAvailable(startLocal, endLocal, existing, 3 - list.Count);
         if (!ok)
         {
-            bookingError = reason == "obsazeno" ? "Tento termin je obsazen." : "Termin neni dostupny.";
+            bookingError = reason == "obsazeno" ? "Tento termín je obsazen." : "Termín není dostupný.";
             return;
         }
 
@@ -288,12 +288,12 @@ else if (state == PageState.Ok)
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Vyberte termin</h5>
+                    <h5 class="modal-title">Vyberte termín</h5>
                     <button type="button" class="btn-close" @onclick="(() => showModal = false)"></button>
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label class="form-label">Delka schuzky</label>
+                        <label class="form-label">Délka schůzky</label>
                         <select class="form-select" value="@selectedDurationMinutes" @onchange="OnDurationChanged">
                             <option value="30">30 min</option>
                             <option value="45">45 min</option>
@@ -301,16 +301,16 @@ else if (state == PageState.Ok)
                         </select>
                     </div>
                     <div class="mb-3">
-                        <div class="form-label">Dostupne terminy</div>
+                        <div class="form-label">Dostupné termíny</div>
                         @if (slots.Count == 0)
                         {
-                            <div>Zadne dostupne terminy.</div>
+                            <div>Žádné dostupné termíny.</div>
                         }
                         else
                         {
                             @foreach (var s in slots)
                             {
-                                var label = $"{s.StartLocal:HH\\:mm}-{s.EndLocal:HH\\:mm}" + (s.Available ? string.Empty : s.Reason == "obsazeno" ? " (obsazeno)" : " (nedostupne)");
+                                var label = $"{s.StartLocal:HH\\:mm}-{s.EndLocal:HH\\:mm}" + (s.Available ? string.Empty : s.Reason == "obsazeno" ? " (obsazeno)" : " (nedostupné)");
                                 <div class="form-check">
                                     <input class="form-check-input" type="radio" name="slot" value="@s.StartLocal" disabled="@(!s.Available)" @onchange="_ => selectedSlotStartLocal = s.StartLocal" />
                                     <label class="form-check-label">@label</label>
@@ -324,11 +324,10 @@ else if (state == PageState.Ok)
                     }
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" @onclick="(() => showModal = false)">Zavrit</button>
+                    <button type="button" class="btn btn-secondary" @onclick="(() => showModal = false)">Zavřít</button>
                     <button type="button" class="btn btn-primary" @onclick="ConfirmReschedule">Potvrdit</button>
                 </div>
             </div>
         </div>
     </div>
 }
-
