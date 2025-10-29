@@ -134,7 +134,7 @@ else if (state == PageState.Ok)
         if (me is null) return;
         var monthStartLocal = new DateTime(displayYear, displayMonth, 1, 0, 0, 0, DateTimeKind.Local);
         var monthStartUtc = monthStartLocal.ToUniversalTime();
-        var nextUtc = monthStartUtc.AddMonths(1);
+        var nextUtc = monthStartLocal.AddMonths(1).ToUniversalTime();
         var monthMeetings = await Db.Meetings
             .Where(m => m.OwnerId == me.Id && m.StartUtc >= monthStartUtc && m.StartUtc < nextUtc)
             .Select(m => m.StartUtc)
