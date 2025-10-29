@@ -1,0 +1,334 @@
+@page "/reschedule/{id:int}"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using ScioBlazor.Data
+@using ScioBlazor.Utils
+
+@inject UserManager<ApplicationUser> UserManager
+@inject ApplicationDbContext Db
+@inject NavigationManager Nav
+
+<PageTitle>Upravit schuzku</PageTitle>
+
+@if (state == PageState.Loading)
+{
+    <p>Nacitani...</p>
+}
+else if (state == PageState.Forbidden)
+{
+    <h1>Pristup zamitnut</h1>
+}
+else if (state == PageState.NotFound)
+{
+    <h1>Schuzka nenalezena</h1>
+}
+else if (state == PageState.Ok)
+{
+    <h1>Upravit schuzku</h1>
+    <div class="d-flex align-items-center mb-2">
+        <button class="btn btn-outline-secondary me-2" @onclick="PrevMonth" disabled="@(!CanPrevMonth())">‹</button>
+        <div class="fs-5">@((new DateTime(displayYear, displayMonth, 1)).ToString("Y"))</div>
+        <button class="btn btn-outline-secondary ms-2" @onclick="NextMonth" disabled="@(!CanNextMonth())">›</button>
+    </div>
+
+    <div class="mt-3">
+        <CalendarMonth Year="@displayYear"
+                       Month="@displayMonth"
+                       ReservedLocalDates="@reservedLocalDates"
+                       HideDetails="true"
+                       DayIsSelectable="@CanSelectDay"
+                       OnDayClick="@OpenBooking"
+                       DayContent="@RenderEventMarker" />
+    </div>
+}
+
+@code {
+    private enum PageState { Loading, Ok, NotFound, Forbidden }
+    private PageState state = PageState.Loading;
+
+    [Parameter] public int id { get; set; }
+
+    private ApplicationUser? me;
+    private Meeting? meeting;
+
+    private int displayYear;
+    private int displayMonth;
+    private IReadOnlyCollection<DateTime> reservedLocalDates = Array.Empty<DateTime>();
+    private Dictionary<DateTime, int> dayMeetingCounts = new();
+
+    private bool showModal;
+    private DateTime? selectedDateLocal;
+    private int selectedDurationMinutes = 30;
+    private List<Slot> slots = new();
+    private DateTime? selectedSlotStartLocal;
+    private string? bookingError;
+
+    private sealed record Slot(DateTime StartLocal, DateTime EndLocal, bool Available, string? Reason);
+
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateTask;
+        me = await UserManager.GetUserAsync(authState.User);
+        if (me is null) { state = PageState.Forbidden; return; }
+
+        meeting = await Db.Meetings.FirstOrDefaultAsync(m => m.Id == id);
+        if (meeting is null) { state = PageState.NotFound; return; }
+        if (meeting.OwnerId != me.Id) { state = PageState.Forbidden; return; }
+
+        // Initialize month
+        var nowLocal = meeting.StartUtc.ToLocalTime();
+        displayYear = nowLocal.Year;
+        displayMonth = nowLocal.Month;
+        selectedDurationMinutes = (int)Math.Clamp((meeting.EndUtc - meeting.StartUtc).TotalMinutes, 15, 240);
+        await LoadDisplayMonth();
+
+        state = PageState.Ok;
+    }
+
+    private bool CanSelectDay(DateTime dateLocal)
+    {
+        var today = DateTime.Now.Date;
+        if (dateLocal.Date <= today) return false;
+        if (dateLocal.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday) return false;
+        var holidays = CzechHolidays.GetForYear(dateLocal.Year);
+        if (holidays.Contains(dateLocal.Date)) return false;
+        var maxDate = today.AddMonths(2).Date;
+        if (dateLocal.Date > maxDate) return false;
+        if (dayMeetingCounts.TryGetValue(dateLocal.Date, out var count) && count >= 3) return false;
+        return true;
+    }
+
+    private RenderFragment<DateTime> RenderEventMarker => date => builder =>
+    {
+        var mDate = meeting?.StartUtc.ToLocalTime().Date;
+        if (mDate.HasValue && mDate.Value == date.Date)
+        {
+            builder.OpenElement(0, "div");
+            builder.AddAttribute(1, "class", "cal-event");
+            builder.AddContent(2, "Aktualni schuzka");
+            builder.CloseElement();
+        }
+    };
+
+    private async Task OpenBooking(DateTime dateLocal)
+    {
+        selectedDateLocal = dateLocal.Date;
+        selectedSlotStartLocal = null;
+        bookingError = null;
+        await LoadSlotsForSelectedDay();
+        showModal = true;
+        StateHasChanged();
+    }
+
+    private async Task LoadDisplayMonth()
+    {
+        if (me is null) return;
+        var monthStartLocal = new DateTime(displayYear, displayMonth, 1, 0, 0, 0, DateTimeKind.Local);
+        var monthStartUtc = monthStartLocal.ToUniversalTime();
+        var nextUtc = monthStartUtc.AddMonths(1);
+        var monthMeetings = await Db.Meetings
+            .Where(m => m.OwnerId == me.Id && m.StartUtc >= monthStartUtc && m.StartUtc < nextUtc)
+            .Select(m => m.StartUtc)
+            .ToListAsync();
+
+        reservedLocalDates = monthMeetings
+            .Select(dt => dt.ToLocalTime().Date)
+            .Distinct()
+            .ToList();
+
+        dayMeetingCounts = monthMeetings
+            .Select(dt => dt.ToLocalTime().Date)
+            .GroupBy(d => d)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        StateHasChanged();
+    }
+
+    private async Task LoadSlotsForSelectedDay()
+    {
+        slots.Clear();
+        if (me is null || selectedDateLocal is null || meeting is null) return;
+
+        var fromLocal = selectedDateLocal.Value;
+        var startUtc = new DateTime(fromLocal.Year, fromLocal.Month, fromLocal.Day, 0, 0, 0, DateTimeKind.Local).ToUniversalTime();
+        var nextUtc = startUtc.AddDays(1);
+        var dayMeetings = await Db.Meetings
+            .Where(m => m.StartUtc >= startUtc && m.StartUtc < nextUtc && m.OwnerId == me.Id && m.Id != meeting.Id)
+            .OrderBy(m => m.StartUtc)
+            .Select(m => new { m.StartUtc, m.EndUtc })
+            .ToListAsync();
+
+        var existing = dayMeetings
+            .Select(m => (Start: m.StartUtc.ToLocalTime(), End: m.EndUtc.ToLocalTime()))
+            .ToList();
+
+        var open = fromLocal.Date.AddHours(9);
+        var close = fromLocal.Date.AddHours(16);
+        var currentCount = existing.Count; // excluding the meeting being rescheduled
+        var capacityRemaining = Math.Max(0, 3 - currentCount);
+
+        var duration = TimeSpan.FromMinutes(selectedDurationMinutes);
+        for (var t = open; t.Add(duration) <= close; t = t.AddMinutes(15))
+        {
+            var slotStart = t;
+            var slotEnd = t.Add(duration);
+            var (available, reason) = IsSlotAvailable(slotStart, slotEnd, existing, capacityRemaining);
+            slots.Add(new Slot(slotStart, slotEnd, available, reason));
+        }
+    }
+
+    private static (bool ok, string? reason) IsSlotAvailable(DateTime start, DateTime end, List<(DateTime Start, DateTime End)> existing, int capacityRemaining)
+    {
+        if (capacityRemaining <= 0) return (false, "nedostupne");
+        foreach (var m in existing)
+        {
+            var overlaps = start < m.End && end > m.Start;
+            if (overlaps) return (false, "obsazeno");
+            var gapBefore = (start - m.End).TotalMinutes;
+            if (gapBefore >= 0 && gapBefore < 15) return (false, "nedostupne");
+            var gapAfter = (m.Start - end).TotalMinutes;
+            if (gapAfter >= 0 && gapAfter < 15) return (false, "nedostupne");
+        }
+        return (true, null);
+    }
+
+    private async Task OnDurationChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(Convert.ToString(e.Value), out var m))
+        {
+            selectedDurationMinutes = m;
+            await LoadSlotsForSelectedDay();
+        }
+    }
+
+    private async Task ConfirmReschedule()
+    {
+        bookingError = null;
+        if (me is null || meeting is null || selectedDateLocal is null || selectedSlotStartLocal is null)
+        {
+            bookingError = "Vyplnte prosim vsechny udaje.";
+            return;
+        }
+
+        var duration = TimeSpan.FromMinutes(selectedDurationMinutes);
+        var startLocal = selectedSlotStartLocal.Value;
+        var endLocal = startLocal.Add(duration);
+        var startUtc = DateTime.SpecifyKind(startLocal, DateTimeKind.Local).ToUniversalTime();
+        var endUtc = DateTime.SpecifyKind(endLocal, DateTimeKind.Local).ToUniversalTime();
+
+        // Final conflict verification for selected day excluding this meeting
+        var dayStartUtc = new DateTime(startLocal.Year, startLocal.Month, startLocal.Day, 0, 0, 0, DateTimeKind.Local).ToUniversalTime();
+        var nextUtc = dayStartUtc.AddDays(1);
+        var list = await Db.Meetings
+            .Where(m => m.OwnerId == me.Id && m.StartUtc >= dayStartUtc && m.StartUtc < nextUtc && m.Id != meeting.Id)
+            .OrderBy(m => m.StartUtc)
+            .Select(m => new { m.StartUtc, m.EndUtc })
+            .ToListAsync();
+        if (list.Count >= 3)
+        {
+            bookingError = "V tento den je jiz kapacita vycerpana.";
+            return;
+        }
+
+        var existing = list.Select(x => (Start: x.StartUtc.ToLocalTime(), End: x.EndUtc.ToLocalTime())).ToList();
+        var (ok, reason) = IsSlotAvailable(startLocal, endLocal, existing, 3 - list.Count);
+        if (!ok)
+        {
+            bookingError = reason == "obsazeno" ? "Tento termin je obsazen." : "Termin neni dostupny.";
+            return;
+        }
+
+        meeting.StartUtc = startUtc;
+        meeting.EndUtc = endUtc;
+        await Db.SaveChangesAsync();
+        Nav.NavigateTo("/calendar", true);
+    }
+
+    // Month navigation helpers
+    private bool CanPrevMonth()
+    {
+        var currentMonthStart = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
+        var prevStart = new DateTime(displayYear, displayMonth, 1).AddMonths(-1);
+        return prevStart >= currentMonthStart;
+    }
+    private bool CanNextMonth()
+    {
+        var currentMonthStart = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
+        var limitStart = currentMonthStart.AddMonths(2);
+        var nextStart = new DateTime(displayYear, displayMonth, 1).AddMonths(1);
+        return nextStart <= limitStart;
+    }
+    private async Task PrevMonth()
+    {
+        if (!CanPrevMonth()) return;
+        var dt = new DateTime(displayYear, displayMonth, 1).AddMonths(-1);
+        displayYear = dt.Year; displayMonth = dt.Month;
+        await LoadDisplayMonth();
+    }
+    private async Task NextMonth()
+    {
+        if (!CanNextMonth()) return;
+        var dt = new DateTime(displayYear, displayMonth, 1).AddMonths(1);
+        displayYear = dt.Year; displayMonth = dt.Month;
+        await LoadDisplayMonth();
+    }
+}
+
+@if (showModal)
+{
+    <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Vyberte termin</h5>
+                    <button type="button" class="btn-close" @onclick="(() => showModal = false)"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Delka schuzky</label>
+                        <select class="form-select" value="@selectedDurationMinutes" @onchange="OnDurationChanged">
+                            <option value="30">30 min</option>
+                            <option value="45">45 min</option>
+                            <option value="60">1 hod</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-label">Dostupne terminy</div>
+                        @if (slots.Count == 0)
+                        {
+                            <div>Zadne dostupne terminy.</div>
+                        }
+                        else
+                        {
+                            @foreach (var s in slots)
+                            {
+                                var label = $"{s.StartLocal:HH\\:mm}-{s.EndLocal:HH\\:mm}" + (s.Available ? string.Empty : s.Reason == "obsazeno" ? " (obsazeno)" : " (nedostupne)");
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="slot" value="@s.StartLocal" disabled="@(!s.Available)" @onchange="_ => selectedSlotStartLocal = s.StartLocal" />
+                                    <label class="form-check-label">@label</label>
+                                </div>
+                            }
+                        }
+                    </div>
+                    @if (!string.IsNullOrEmpty(bookingError))
+                    {
+                        <div class="text-danger mt-2">@bookingError</div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="(() => showModal = false)">Zavrit</button>
+                    <button type="button" class="btn btn-primary" @onclick="ConfirmReschedule">Potvrdit</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+

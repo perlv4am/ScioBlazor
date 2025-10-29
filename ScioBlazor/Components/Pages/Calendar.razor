@@ -2,12 +2,14 @@
 @attribute [Authorize]
 @rendermode InteractiveServer
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.EntityFrameworkCore
 @using ScioBlazor.Data
 @inject UserManager<ApplicationUser> UserManager
 @inject ApplicationDbContext Db
+@inject NavigationManager NavigationManager
 
 <PageTitle>Můj kalendář</PageTitle>
 
@@ -39,7 +41,7 @@ else
     private int displayMonth;
     private IReadOnlyCollection<DateTime> reservedLocalDates = Array.Empty<DateTime>();
     private Dictionary<DateTime, List<EventVm>> byDay = new();
-    private sealed record EventVm(DateTime Start, DateTime End, string Label, bool WithMe);
+    private sealed record EventVm(int Id, DateTime Start, DateTime End, string Label, bool WithMe);
 
     [CascadingParameter]
     private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
@@ -73,6 +75,7 @@ else
             orderby m.StartUtc
             select new
             {
+                m.Id,
                 m.StartUtc,
                 m.EndUtc,
                 m.AttendeeName,
@@ -106,7 +109,7 @@ else
                     label = x.OwnerUserName ?? "uživatel";
                 }
             }
-            return new EventVm(start, end, label, x.WithMe);
+            return new EventVm(x.Id, start, end, label, x.WithMe);
         });
 
         byDay = projected
@@ -141,10 +144,100 @@ else
                 builder.OpenElement(seq++, "div");
                 var cls = e.WithMe ? "cal-event" : "cal-event cal-event-alt";
                 builder.AddAttribute(seq++, "class", cls);
-                var label = $"{e.Start:HH\\:mm}-{e.End:HH\\:mm}, {e.Label}";
+                builder.AddAttribute(seq++, "style", "cursor:pointer");
+                builder.AddAttribute(seq++, "onclick", EventCallback.Factory.Create(this, () => OnEventClick(e)));
+                var editMark = e.WithMe ? " [edit]" : string.Empty;
+                var label = $"{e.Start:HH\\:mm}-{e.End:HH\\:mm}, {e.Label}{editMark}";
                 builder.AddContent(seq++, label);
                 builder.CloseElement();
             }
         }
     };
+}
+
+@if (showEventModal && selectedEvent is not null)
+    {
+        <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,.5);">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Akce se schůzkou</h5>
+                        <button type="button" class="btn-close" @onclick="(() => showEventModal = false)"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div>
+                            <div><strong>Cas:</strong> @($"{selectedEvent.Start:HH\\:mm}-{selectedEvent.End:HH\\:mm}")</div>
+                            <div><strong>Popis:</strong> @selectedEvent.Label</div>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(eventModalError))
+                        {
+                            <div class="text-danger mt-2">@eventModalError</div>
+                        }
+                    </div>
+                    <div class="modal-footer">
+                        @if (selectedEvent.WithMe)
+                        {
+                            <button type="button" class="btn btn-primary" @onclick="EditSelected">Upravit</button>
+                            <button type="button" class="btn btn-danger" @onclick="DeleteSelectedAsync">Smazat</button>
+                        }
+                        <button type="button" class="btn btn-secondary" @onclick="(() => showEventModal = false)">Zavřít</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+}
+
+@code {
+    // Modal state for event actions
+    private bool showEventModal;
+    private EventVm? selectedEvent;
+    private string? eventModalError;
+
+    private void OnEventClick(EventVm vm)
+    {
+        selectedEvent = vm;
+        eventModalError = null;
+        showEventModal = true;
+        StateHasChanged();
+    }
+
+    private async Task DeleteSelectedAsync()
+    {
+        eventModalError = null;
+        if (selectedEvent is null) { showEventModal = false; return; }
+        if (selectedEvent.WithMe != true)
+        {
+            eventModalError = "Nemáte oprávnění smazat tuto schůzku.";
+            return;
+        }
+        var m = await Db.Meetings.FirstOrDefaultAsync(x => x.Id == selectedEvent.Id);
+        if (m is null)
+        {
+            showEventModal = false;
+            return;
+        }
+        var authState = await AuthenticationStateTask;
+        var me = await UserManager.GetUserAsync(authState.User);
+        if (me is null || m.OwnerId != me.Id)
+        {
+            eventModalError = "Nemáte oprávnění smazat tuto schůzku.";
+            return;
+        }
+        Db.Meetings.Remove(m);
+        await Db.SaveChangesAsync();
+        showEventModal = false;
+        await LoadMonth();
+    }
+
+    private void EditSelected()
+    {
+        if (selectedEvent is null) { showEventModal = false; return; }
+        if (selectedEvent.WithMe != true)
+        {
+            eventModalError = "Nemáte oprávnění upravit tuto schůzku.";
+            return;
+        }
+        showEventModal = false;
+        NavigationManager.NavigateTo($"/reschedule/{selectedEvent.Id}");
+    }
 }
