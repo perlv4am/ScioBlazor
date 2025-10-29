@@ -34,21 +34,6 @@
         if (dayMeetingCounts.TryGetValue(dateLocal.Date, out var count) && count >= 3) return false;
         return true;
     }
-
-    private string OwnerShort()
-    {
-        var display = owner?.UserName ?? "uživatel";
-        string first = display;
-        string lastInitial = string.Empty;
-        var parts = display.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (parts.Length >= 2)
-        {
-            first = parts[0];
-            lastInitial = $" {parts[^1][0].ToString().ToUpperInvariant()}.";
-        }
-        return first + lastInitial;
-    }
-
     // Helper to show user's name (First + Last initial) with fallbacks
     private string OwnerDisplayShort()
     {
@@ -73,13 +58,27 @@
         return firstFallback + lastInitialFallback;
     }
 
+    // Instrumental helper if available: e.g. "Honza" -> "Honzou N."
+    private string? OwnerDisplayShortInstrumental()
+    {
+        if (owner is null) return null;
+        var instr = owner.FirstNameInstrumental;
+        if (!string.IsNullOrWhiteSpace(instr))
+        {
+            var lastInitial = !string.IsNullOrWhiteSpace(owner.LastName) ? $" {owner.LastName[0].ToString().ToUpperInvariant()}." : string.Empty;
+            return (instr + lastInitial).Trim();
+        }
+        return null;
+    }
+
+
     private RenderFragment<DateTime> RenderPersonalEvent => date => builder =>
     {
         if (personalMeetingDateLocal.HasValue && personalMeetingDateLocal.Value.Date == date.Date)
         {
             builder.OpenElement(0, "div");
             builder.AddAttribute(1, "class", "cal-event");
-            builder.AddContent(2, $"Vaše schůzka s {OwnerDisplayShort()}");
+            builder.AddContent(2, $"Vaše schůzka s {(OwnerDisplayShortInstrumental() ?? OwnerDisplayShort())}");
             builder.CloseElement();
         }
     };
@@ -542,8 +541,13 @@ else if (owner is not null)
         state = PageState.Ok;
     }
 
-        private string HeaderText()
+    private string HeaderText()
     {
+        var instr = OwnerDisplayShortInstrumental();
+        if (!string.IsNullOrWhiteSpace(instr))
+        {
+            return "Sjednat schůzku s " + instr;
+        }
         return $"Sjednat schůzku s uživatelem {OwnerDisplayShort()}";
     }
 }

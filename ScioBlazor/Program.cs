@@ -42,6 +42,10 @@ builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSe
 builder.Services.Configure<SendGridOptions>(builder.Configuration.GetSection("Email:SendGrid"));
 builder.Services.AddSingleton<IBookingNotificationService, SendGridBookingNotificationService>();
 
+// Name declension API
+builder.Services.Configure<NameDeclensionOptions>(builder.Configuration.GetSection("Names:SklonovaniJmen"));
+builder.Services.AddHttpClient<INameDeclensionService, SklonovaniJmenService>();
+
 // External authentication providers (Google)
 builder.Services
     .AddAuthentication()

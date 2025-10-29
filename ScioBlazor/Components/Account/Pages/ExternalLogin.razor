@@ -9,6 +9,7 @@
 @inject UserManager<ApplicationUser> UserManager
 @inject IdentityRedirectManager RedirectManager
 @inject ILogger<ExternalLogin> Logger
+@inject ScioBlazor.Services.INameDeclensionService NameDeclension
 
 @code {
     public const string LoginCallbackAction = "LoginCallback";
@@ -74,6 +75,17 @@
             {
                 RedirectManager.RedirectToWithStatus("/Account/Login", $"Error creating user: {string.Join(", ", createResult.Errors.Select(e => e.Description))}", HttpContext);
             }
+
+            // Try to fetch instrumental form for first name
+            if (!string.IsNullOrWhiteSpace(user.FirstName))
+            {
+                var instr = await NameDeclension.GetInstrumentalFirstNameAsync(user.FirstName!);
+                if (!string.IsNullOrWhiteSpace(instr))
+                {
+                    user.FirstNameInstrumental = instr;
+                    try { await UserManager.UpdateAsync(user); } catch { /* ignore */ }
+                }
+            }
         }
 
         // Update missing names for existing user if available
@@ -87,6 +99,17 @@
             if (upd)
             {
                 await UserManager.UpdateAsync(user);
+            }
+
+            // If instrumental is missing, try to fetch it now
+            if (string.IsNullOrWhiteSpace(user.FirstNameInstrumental) && !string.IsNullOrWhiteSpace(user.FirstName))
+            {
+                var instr = await NameDeclension.GetInstrumentalFirstNameAsync(user.FirstName!);
+                if (!string.IsNullOrWhiteSpace(instr))
+                {
+                    user.FirstNameInstrumental = instr;
+                    try { await UserManager.UpdateAsync(user); } catch { /* ignore */ }
+                }
             }
         }
 
