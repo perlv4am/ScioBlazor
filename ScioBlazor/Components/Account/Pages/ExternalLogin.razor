@@ -36,7 +36,7 @@
         var info = await SignInManager.GetExternalLoginInfoAsync();
         if (info is null)
         {
-            RedirectManager.RedirectToWithStatus("/Account/Login", "Error loading external login information.", HttpContext);
+            RedirectManager.RedirectToWithStatus("/Account/Login", "Chyba při načítání informací o externím přihlášení.", HttpContext);
         }
 
         // Try sign-in with existing external login
@@ -59,7 +59,7 @@
         var email = info.Principal.FindFirstValue(ClaimTypes.Email);
         if (string.IsNullOrWhiteSpace(email))
         {
-            RedirectManager.RedirectToWithStatus("/Account/Login", "Google sign-in did not provide an email.", HttpContext);
+            RedirectManager.RedirectToWithStatus("/Account/Login", "Google přihlášení neposkytlo e‑mail.", HttpContext);
         }
 
         var user = await UserManager.FindByEmailAsync(email);
@@ -73,7 +73,7 @@
             var createResult = await UserManager.CreateAsync(user);
             if (!createResult.Succeeded)
             {
-                RedirectManager.RedirectToWithStatus("/Account/Login", $"Error creating user: {string.Join(", ", createResult.Errors.Select(e => e.Description))}", HttpContext);
+                RedirectManager.RedirectToWithStatus("/Account/Login", $"Chyba při vytváření uživatele: {string.Join(", ", createResult.Errors.Select(e => e.Description))}", HttpContext);
             }
 
             // Try to fetch instrumental form for first name
